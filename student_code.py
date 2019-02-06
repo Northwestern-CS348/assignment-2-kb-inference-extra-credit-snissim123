@@ -116,19 +116,95 @@ class KnowledgeBase(object):
             print("Invalid ask:", fact.statement)
             return []
 
+    def kb_retractR(self, fact_or_rule):
+        if type(fact_or_rule) == Fact:
+            # not in KB
+            if not self.facts.count(fact_or_rule):
+                return
+            else:
+                myF = self._get_fact(fact_or_rule)
+                if not myF.asserted:
+                    if not myF.supported_by:
+                        for child in myF.supports_rules:
+                            child = self._get_rule(child)
+                            for pair in child.supported_by:
+                                if pair[0] == myF:
+                                    child.supported_by.remove(pair)
+
+                                if len(child.supported_by) == 0:
+                                    self.kb_retractR(child)
+
+
+                        for child in myF.supports_facts:
+                            child = self._get_fact(child)
+                            for pair in child.supported_by:
+                                if pair[0] == myF:
+                                    child.supported_by.remove(pair)
+                                if len(child.supported_by) == 0:
+                                    self.kb_retractR(child)
+                    
+                        self.facts.remove(myF)
+
+        else:
+            if not self.rules.count(fact_or_rule):
+                return
+            myR = self._get_rule(fact_or_rule)
+            if not myR.asserted:
+                if not myR.supported_by:
+                    for child in myR.supports_rules:
+                        child = self._get_rule(child)
+                        for pair in child.supported_by:
+                            if pair[1] == myR:
+                                child.supported_by.remove(pair)
+                            if len(child.supported_by) == 0:
+                                self.kb_retractR(child)
+
+                    for child in myR.supports_facts:
+                        child = self._get_fact(child)
+                        for pair in child.supported_by:
+                            if pair[1] == myR:
+                                child.supported_by.remove(pair)
+                            if len(child.supported_by) == 0:
+                                self.kb_retract(child)
+
+                    self.rules.remove(myR)
+        
+
+
     def kb_retract(self, fact_or_rule):
-        """Retract a fact from the KB
+        if type(fact_or_rule) == Fact:
+            myF = self._get_fact(fact_or_rule)
+            if myF.asserted:
+                myF.asserted = False
+            self.kb_retractR(myF)
 
-        Args:
-            fact (Fact) - Fact to be retracted
 
-        Returns:
-            None
-        """
-        printv("Retracting {!r}", 0, verbose, [fact_or_rule])
-        ####################################################
-        # Implementation goes here
-        # Not required for the extra credit assignment
+    def kb_explainHelp(self, myFR, myStr, count):
+        for parent in myFR.supported_by:
+            myStr += "\n  " + "    " * count + "SUPPORTED BY"
+
+            myStr += "\n    " + "    " * count + "fact: " + str(parent[0].statement)
+            if parent[0].asserted:
+                myStr += " ASSERTED"
+
+            myStr += "\n    " + "    " * count + "rule: ("
+            for entry in parent[1].lhs:
+                myStr += str(entry) + ", "
+
+            myStr = myStr[:-2]
+            myStr += ") -> " + str(parent[1].rhs)
+            if parent[1].asserted:
+                myStr += " ASSERTED"
+
+
+            if len(parent[0].supported_by) != 0:
+                myStr = self.kb_explainHelp(parent[0], myStr, count + 1)
+            if len(parent[1].supported_by) != 0:
+                myStr = self.kb_explainHelp(parent[1], myStr, count + 1)
+        return myStr
+
+
+
 
     def kb_explain(self, fact_or_rule):
         """
@@ -142,6 +218,25 @@ class KnowledgeBase(object):
         """
         ####################################################
         # Student code goes here
+        if type(fact_or_rule) == Fact:
+            if not self.facts.count(fact_or_rule):
+                return("Fact is not in the KB")
+            else:
+                myFact = self._get_fact(fact_or_rule)
+                myStr = "fact: " + str(myFact.statement)
+                myStr = self.kb_explainHelp(myFact, myStr, 0)
+
+        elif type(fact_or_rule) == Rule:
+            if not self.rules.count(fact_or_rule):
+                return("Rule is not in the KB")
+            else:
+                myRule = self._get_rule(fact_or_rule)
+                myStr = "rule: (" + str(myRule.lhs) + ") -> " + str(myRule.rhs)
+                myStr = self.kb_explainHelp(myRule, myStr, 0)
+
+        else:
+            return False
+        return myStr
 
 
 class InferenceEngine(object):
@@ -161,3 +256,28 @@ class InferenceEngine(object):
         ####################################################
         # Implementation goes here
         # Not required for the extra credit assignment
+
+        possBindings = match(rule.lhs[0], fact.statement)
+        supportList = [fact, rule]
+        allBindings = []
+
+        if possBindings:
+            newInfo = instantiate(rule.rhs, possBindings)
+
+            # New fact
+            if len(rule.lhs) == 1:
+                addMe = Fact(newInfo, [supportList])
+                
+            # New rule
+            else:
+                for i in range(len(rule.lhs) - 1):
+                    moreBindings = instantiate(rule.lhs[1 + i], possBindings)
+                    allBindings.append(moreBindings)
+
+                addMe = Rule([allBindings, newInfo], [supportList])
+
+            addMe.asserted = False
+            rule.supports_facts.append(addMe)
+            fact.supports_facts.append(addMe)
+            kb.kb_assert(addMe)
+
